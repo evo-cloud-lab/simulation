@@ -1,14 +1,18 @@
-var GroupedPeerNetStack = new Class({
-    initialize: function (node) {
+var GroupedPeerNetStack = Class({
+    constructor: function (node) {
         this.node = node;
+        this.ctx = node.context;
+        this.ctx.nodes = {};
+    },
+
+    receive: function (msg) {
     },
     
-    run: function (done) {
-        done();
+    idle: function () {
     }
 });
 
-var GroupedPeerNetStackAddon = new Class({
+var GroupedPeerNetStackAddon = Class({
     create: function (node) {
         return new GroupedPeerNetStack(node);
     }

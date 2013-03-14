@@ -1,14 +1,16 @@
-require("mootools");
+var fs        	= require("fs"),
+	path		= require("path"),
+    async     	= require("async"),
+    yaml		= require("js-yaml"),
+    clc 		= require("cli-color"),
+    nom 		= require("nomnom"),
+    commander 	= require("commander"),
+    u 			= require("./lib/utils");
 
-var fs = require("fs"),
-    async  = require("async"),
-    yaml = require("js-yaml"),
-    clc = require("cli-color"),
-    nom = require("nomnom"),
-    commander = require("commander"),
-    u = require("./lib/utils"),
-    SimulatorBuilder = require("./lib/SimulatorBuilder"),
-    AddonsManager = require("./lib/AddonsManager");
+global.Class = u.Class;
+
+var SimulatorBuilder = require("./lib/SimulatorBuilder"),
+    AddonsManager    = require("./lib/AddonsManager");
 
 var _noColor = {
     quot: function (s) { return '"' + s + '"'; },
@@ -36,9 +38,9 @@ var opts = nom.script("simulate")
                 help: "Read configurations from FILE"
             }).option("define", {
                 abbr: "d",
-                metavar: "KEY:VAL",
+                metavar: "KEY:JSON",
                 list: true,
-                help: "Set configuration"
+                help: "Set configuration, if JSON starts with @, value is loaded from filename followed"
             }).option("resolve", {
                 abbr: "r",
                 metavar: "REQUIRE:ADDON",
@@ -58,8 +60,8 @@ var opts = nom.script("simulate")
 
 var t = opts.script ? _noColor : _ansiColor;
 
-var CliChooser = new Class({
-    initialize: function (opts) {
+var CliChooser = Class({
+    constructor: function (opts) {
         this.nonInteractive = opts.script;
         this.resolves = {};
         if (Array.isArray(opts.resolve)) {
@@ -126,6 +128,7 @@ function formatReport(object) {
 }
 
 function simulate(simulator) {
+	// load configurations
     if (Array.isArray(opts.config)) {
         opts.config.forEach(function (conffile) {
             var conf;
@@ -142,33 +145,52 @@ function simulate(simulator) {
         });
     }
     
+	// update configurations
     if (Array.isArray(opts.define)) {
         opts.define.forEach(function (definition) {
             var index = definition.indexOf(":");
             if (index > 0) {
-                simulator.settings[definition.substr(0, index)] = definition.substr(index + 1);
+				var key = definition.substr(0, index);
+				var val = definition.substr(index + 1);
+				if (val[0] == '@') {
+					val = fs.readSync(val.substr(1), { encoding: 'utf8' });
+				}
+                simulator.settings[key] = JSON.parse(val);
             }
         });
     }
     
+	// truncate output log file
     if (opts.output && !opts.append && fs.existsSync(opts.output)) {
         fs.closeSync(fs.openSync(opts.output, "w"));
     }
 
+	// hook-up reporter
     simulator.reporter = opts.output ? function (object) { fs.appendFileSync(opts.output, formatReport(object)); }
                                      : function (object) {
                                         console.log(formatReport(object));
                                     };
 
-    console.log(t.info("Simulation START"));
-    simulator.simulate(function (err) {
-        if (err) {
-            console.log(t.fatal(err));
-            process.exit(1);
-        } else {
-            console.log(t.info("Simulation COMPLETE"));
-            process.exit(0);
-        }
+	// load scripts
+	if (Array.isArray(opts._)) {
+		opts._.forEach(function (script) {
+			console.log("Loading " + script);
+			var fullpath = path.resolve(script);
+			require(fullpath)(simulator);
+		});
+	}
+	
+	simulator.on("start", function () {
+	    console.log(t.info("Simulation START"));
+	}).on("end", function () {
+		console.log(t.info("Simulation END"));
+	}).simulate(function (err) {
+		if (err) {
+			console.log(t.fatal(err));
+		}
+		process.nextTick(function () {
+			process.exit(err ? 1 : 0);
+		});
     });                    
 }
 

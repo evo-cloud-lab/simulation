@@ -6,7 +6,6 @@
     "start": "node simulate"
   },
   "dependencies": {
-    "mootools": "1.4.5",
     "underscore": "1.4.4",
     "cli-color": "0.2.2",
     "nomnom": "1.5.3",

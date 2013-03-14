@@ -1,20 +1,19 @@
-var async = require("async"),
-    _ = require("underscore");
+var async   = require("async"),
+    _       = require("underscore");
 
 function error(message) {
     return new Error("[peernet] " + message);
 }
 
-var RouteError = new Class({
-    Extends: Error,
-    initialize: function (dest) {
-        this.parent("Route not available: " + dest);
+var RouteError = Class(Error, {
+    constructor: function (dest) {
+        this.message = "Route not available: " + dest;
         this.destination = dest;
     }
 });
 
-var MessageEvent = new Class({
-    initialize: function (type, msg, src, dst) {
+var MessageEvent = Class({
+    constructor: function (type, msg, src, dst) {
         this.type = type;
         this.data = msg;
         this.src = src;
@@ -30,14 +29,18 @@ var MessageEvent = new Class({
     }
 });
 
-var PeerNetNode = new Class({
-    initialize: function (id, engine) {
+var PeerNetNode = Class({
+    constructor: function (id, engine) {
         this.id = id;
         this.engine = engine;
         this.context = { };
         this.groups = { };
         this.queue = [ ];
         this.stack = engine.addon.stack.create(this);
+    },
+    
+    get host () {
+        return this.engine.addon.host;
     },
     
     run: function (done) {
@@ -86,8 +89,8 @@ var PeerNetNode = new Class({
     }
 });
 
-var Options = new Class({
-    initialize: function (options) {
+var Options = Class({
+    constructor: function (options) {
         this.options = options;
     },
 
@@ -110,8 +113,8 @@ var Options = new Class({
     }
 });
 
-var PeerNetEngine = new Class({
-    initialize: function (addon) {
+var PeerNetEngine = Class({
+    constructor: function (addon) {
         this.addon = addon;
         
         var opts = new Options(addon.host.settings);
@@ -122,47 +125,66 @@ var PeerNetEngine = new Class({
         this.counters = { messages: 0, traffic: 0 }
         this.nodes = [];
         for (var i = 0; i < nodeCount; i ++) {
-            this.nodes[i] = new PeerNetNode(i + 1, this);
+            this.nodes[i] = new PeerNetNode((i + 1).toString(), this);
         }
+        this.blocked = {};
     },
 
+    block: function (id, blocked) {
+        if (blocked) {
+            this.blocked[id] = blocked;
+        } else {
+            delete this.blocked[id];
+        }
+        return this;
+    },
+    
     deliver: function (dst, event) {
         this.counters.traffic ++;
-        dst.enqueue(event.dup());
+        if (!this.blocked[dst.id]) {
+            dst.enqueue(event.dup());
+        }
+        return this;
     },
     
     broadcast: function (event) {
-        this.nodes.forEach(function (node) {
-            if (node.id != event.src.id) {
-                this.deliver(node, event);
-            }
-        }, this);
-        this.counters.messages ++;
+        if (!this.blocked[event.src.id]) {
+            this.nodes.forEach(function (node) {
+                if (node.id != event.src.id) {
+                    this.deliver(node, event);
+                }
+            }, this);
+            this.counters.messages ++;
+        }
         return this;
     },
     
     unicast: function (event, callback) {
-        var id = parseInt(event.dst);
-        if (id > 0 && id <= this.nodes.length) {
-            event.dst = this.nodes[id - 1];
-            this.deliver(event.dst, event);
-            this.counters.messages ++;
-            process.nextTick(callback);
-        } else {
-            process.nextTick(function () {
-                callback(new RouteError(event.dst));
-            });
+        if (!this.blocked[event.src.id]) {
+            var id = parseInt(event.dst);
+            if (id > 0 && id <= this.nodes.length) {
+                event.dst = this.nodes[id - 1];
+                this.deliver(event.dst, event);
+                this.counters.messages ++;
+                process.nextTick(callback);
+            } else {
+                process.nextTick(function () {
+                    callback(new RouteError(event.dst));
+                });
+            }
         }
         return this;
     },
     
     multicast: function (event) {
-        this.nodes.forEach(function (node) {
-            if (node.id != msg.src.id && node.groups[group]) {
-                this.deliver(node, event);
-            }
-        }, this);
-        this.counters.messages ++;
+        if (!this.blocked[event.src.id]) {
+            this.nodes.forEach(function (node) {
+                if (node.id != msg.src.id && node.groups[group]) {
+                    this.deliver(node, event);
+                }
+            }, this);
+            this.counters.messages ++;
+        }
         return this;
     },
 
@@ -177,7 +199,7 @@ var PeerNetEngine = new Class({
                 context: node.context
             }
         }, this);
-        this.addon.host.report(summary);
+        this.addon.host.report({ peernet: summary });
     },
     
     simulate: function (done) {
@@ -187,6 +209,7 @@ var PeerNetEngine = new Class({
             function () { return self.iteration < self.iterations; },
             function (next) {
                 self.counters = { messages: 0, traffic: 0 };
+                self.addon.host.emit("peernet.iteration.start", self, self.iteration);
                 var ids = _.shuffle(Object.keys(self.nodes));
                 async.parallel(
                     ids.map(function (idStr) {
@@ -195,6 +218,7 @@ var PeerNetEngine = new Class({
                         };
                     }),
                     function (err) {
+                        self.addon.host.emit("peernet.iteration.done", self, self.iteration, err);
                         self.report();
                         self.iteration ++;
                         next(err);
@@ -206,7 +230,7 @@ var PeerNetEngine = new Class({
     }
 });
 
-var PeerNetEngineAddon = new Class({    
+var PeerNetEngineAddon = Class({    
     get requires () {
         return {
             stack: { name: "peernet.stack", space: "parts/peernet" }

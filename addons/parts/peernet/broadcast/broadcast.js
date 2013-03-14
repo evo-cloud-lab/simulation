@@ -1,6 +1,7 @@
-var BroadcastPeerNetStack = new Class({
-    initialize: function (node) {
+var BroadcastPeerNetStack = Class({
+    constructor: function (node) {
         this.node = node;
+        this.expiration = node.host.settings["peernet.stack.broadcast.expiration"] || 3;
         this.ctx = node.context;
         this.ctx.revision = 0;
         this.ctx.state = { age: 0 };
@@ -25,7 +26,7 @@ var BroadcastPeerNetStack = new Class({
         var deadNodes = [];
         for (var id in this.ctx.nodes) {
             var node = this.ctx.nodes[id];
-            if (this.node.engine.iteration - node.updated > 3) {
+            if (this.node.engine.iteration - node.updated > this.expiration) {
                 deadNodes.push(id);
             }
         }
@@ -51,7 +52,7 @@ var BroadcastPeerNetStack = new Class({
     }
 });
 
-var BroadcastPeerNetStackAddon = new Class({
+var BroadcastPeerNetStackAddon = Class({
     create: function (node) {
         return new BroadcastPeerNetStack(node);
     }
