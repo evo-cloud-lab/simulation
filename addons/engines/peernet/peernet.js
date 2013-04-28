@@ -1,16 +1,8 @@
-var async   = require("async"),
-    _       = require("underscore");
+var _ = require("underscore");
 
 function error(message) {
     return new Error("[peernet] " + message);
 }
-
-var RouteError = Class(Error, {
-    constructor: function (dest) {
-        this.message = "Route not available: " + dest;
-        this.destination = dest;
-    }
-});
 
 var MessageEvent = Class({
     constructor: function (type, msg, src, dst) {
@@ -43,22 +35,10 @@ var PeerNetNode = Class({
         return this.engine.addon.host;
     },
     
-    run: function (done) {
-        var self = this;
-        var len = this.queue.length;
-        async.forEach(this.queue.slice(0, len),
-            function (event, next) { 
-                event.dispatch(self);
-                next();
-            },
-            function (err) {
-                self.queue.splice(0, len);
-                self.stack.idle();
-                done(err);
-            }
-        );
+    tick: function () {
+        this.stack.tick();
     },
-    
+
     enqueue: function (event) {
         this.queue.push(event);
     },
@@ -78,8 +58,8 @@ var PeerNetNode = Class({
         return this;
     },
     
-    unicast: function (msg, dest, callback) {
-        this.engine.unicast(new MessageEvent('u', msg, this, dest), callback);
+    unicast: function (msg, dest) {
+        this.engine.unicast(new MessageEvent('u', msg, this, dest));
         return this;
     },
     
@@ -103,6 +83,12 @@ var Options = Class({
         return val;
     },
     
+    optional: function (name, defVal) {
+        name = "peernet." + name;
+        var val = this.options[name];
+        return val == undefined ? defVal : val;
+    },
+    
     positive: function (name) {
         var val = this.required(name);
         val = parseInt(val);
@@ -120,6 +106,7 @@ var PeerNetEngine = Class({
         var opts = new Options(addon.host.settings);
         var nodeCount = opts.positive("nodes");
         this.iterations = opts.positive("iterations");
+        this.msgrate = opts.optional("msgrate", 25);
 
         this.iteration = 0;
         this.counters = { messages: 0, traffic: 0 }
@@ -159,18 +146,13 @@ var PeerNetEngine = Class({
         return this;
     },
     
-    unicast: function (event, callback) {
+    unicast: function (event) {
         if (!this.blocked[event.src.id]) {
             var id = parseInt(event.dst);
             if (id > 0 && id <= this.nodes.length) {
                 event.dst = this.nodes[id - 1];
                 this.deliver(event.dst, event);
                 this.counters.messages ++;
-                process.nextTick(callback);
-            } else {
-                process.nextTick(function () {
-                    callback(new RouteError(event.dst));
-                });
             }
         }
         return this;
@@ -203,30 +185,43 @@ var PeerNetEngine = Class({
     },
     
     simulate: function (done) {
-        this.iteration = 0;
-        var self = this;
-        async.whilst(
-            function () { return self.iteration < self.iterations; },
-            function (next) {
-                self.counters = { messages: 0, traffic: 0 };
-                self.addon.host.emit("peernet.iteration.start", self, self.iteration);
-                var ids = _.shuffle(Object.keys(self.nodes));
-                async.parallel(
-                    ids.map(function (idStr) {
-                        return function (done) {
-                            self.nodes[parseInt(idStr)].run(done);
-                        };
-                    }),
-                    function (err) {
-                        self.addon.host.emit("peernet.iteration.done", self, self.iteration, err);
-                        self.report();
-                        self.iteration ++;
-                        next(err);
+        for(this.iteration = 0; this.iteration < this.iterations; ) {
+            this.counters = { messages: 0, traffic: 0 };
+            this.updated = false;
+            this.addon.host.emit("peernet.iteration.start", this, this.iteration);
+            for (var msgCount = 0; msgCount < this.msgrate; ) {
+                var idleCount = 0;
+                this.iterate(function (node) {
+                    if (msgCount < this.msgrate) {
+                        var msg = node.queue.shift();
+                        if (msg) {
+                            msg.dispatch(node);
+                            msgCount ++;
+                        } else {
+                            idleCount ++;
+                        }
                     }
-                );
-            },
-            done
-        );
+                });
+                if (idleCount >= Object.keys(this.nodes).length) {
+                    break;
+                }
+            }
+            this.iterate(function (node) {
+                node.tick();
+            });
+            this.addon.host.emit("peernet.iteration.done", this, this.iteration);
+            if (this.updated) {
+                this.report();
+            }
+            this.iteration ++;
+        }
+        done();
+    },
+    
+    iterate: function (fn) {
+        _.shuffle(Object.keys(this.nodes)).forEach(function (id) {
+            fn.call(this, this.nodes[parseInt(id)]);
+        }, this);
     }
 });
 

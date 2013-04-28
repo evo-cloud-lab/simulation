@@ -1,10 +1,9 @@
 var BroadcastPeerNetStack = Class({
     constructor: function (node) {
         this.node = node;
-        this.expiration = node.host.settings["peernet.stack.broadcast.expiration"] || 3;
+        this.expiration = node.host.settings["peernet.stack.broadcast.expiration"] || 300;
         this.ctx = node.context;
-        this.ctx.revision = 0;
-        this.ctx.state = { age: 0 };
+        this.ctx.lastUpdate = -1;
         this.ctx.nodes = { };
     },
     
@@ -15,20 +14,34 @@ var BroadcastPeerNetStack = Class({
         }
     },
     
-    idle: function () {
+    tick: function () {
         this.cleanupNodes();
-        this.ctx.state.age ++;
-        this.ctx.revision ++;
-        this.stateUpdate();
+        if (this.ctx.lastUpdate < 0 ||
+            this.currentTick() - this.ctx.lastUpdate > this.expiration / 2) {
+            this.stateUpdate();
+            this.ctx.lastUpdate = this.currentTick();
+            this.updated();
+        }
+    },
+    
+    currentTick: function () {
+        return this.node.engine.iteration;
+    },
+    
+    updated: function () {
+        this.node.engine.updated = true;
     },
     
     cleanupNodes: function () {
         var deadNodes = [];
         for (var id in this.ctx.nodes) {
             var node = this.ctx.nodes[id];
-            if (this.node.engine.iteration - node.updated > this.expiration) {
+            if (this.currentTick() - node.updated > this.expiration) {
                 deadNodes.push(id);
             }
+        }
+        if (deadNodes.length > 0) {
+            this.updated();
         }
         deadNodes.forEach(function (id) {
             delete this.ctx.nodes[id];
@@ -36,18 +49,28 @@ var BroadcastPeerNetStack = Class({
     },
     
     stateUpdate: function () {
+        var nodes = { };
+        for (var id in this.ctx.nodes) {
+            nodes[id] = this.ctx.nodes[id].updated;
+        }
         this.node.broadcast({
             cmd: 'stateUpdate',
-            ctx: this.ctx
+            nodes: nodes
         });        
     },
     
     onStateUpdate: function (msg, from) {
-        this.ctx.nodes[from] = { state: msg.ctx.state, updated: this.node.engine.iteration };
-        for (var id in msg.ctx.nodes) {
-            if (id != this.node.id && !this.ctx.nodes[id]) {
-                this.ctx.nodes[id] = msg.ctx.nodes[id];
+        for (var id in msg.nodes) {
+            if (id != this.node.id &&
+                (!this.ctx.nodes[id] || this.ctx.nodes[id].updated < msg.nodes[id])) {
+                this.ctx.nodes[id] = { updated: msg.nodes[id] };
+                this.updated();
             }
+        }
+        if (!this.ctx.nodes[from] ||
+            this.ctx.nodes[from].updated != this.currentTick()) {            
+            this.ctx.nodes[from] = { updated: this.currentTick() };
+            this.updated();
         }
     }
 });

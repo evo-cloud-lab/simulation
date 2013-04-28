@@ -25,14 +25,9 @@ var JoiningState = Class(State, {
     
     iterationDone: function (engine, iteration) {
         if (engine.nodes.every(function (node) {
-                var ids = Object.keys(node.context.nodes);
-                if (ids.length != engine.nodes.length - 1) {
-                    return false;
-                }
-                return ids.every(function (id) {
-                    return node.context.nodes[id].state.age == engine.nodes[id - 1].context.state.age;
-                });
+                return Object.keys(node.context.nodes).length == engine.nodes.length - 1;
             })) {
+            engine.updated = true;
             this.report({ joined: iteration });
             return this.nextState.call(this);
         }
@@ -52,6 +47,7 @@ var BreakingState = Class(State, {
         if (!this.blocking) {
             engine.block(BLOCK_ID, true);
             this.blocking = true;
+            engine.updated = true;
             this.report({ breaking: iteration });
         }
         return this;
@@ -64,6 +60,7 @@ var BreakingState = Class(State, {
                 }
                 return Object.keys(node.context.nodes).indexOf(BLOCK_ID) < 0;
             })) {
+            engine.updated = true;
             this.report({ lost: iteration });
             engine.block(BLOCK_ID, false);
             this.blocking = false;
