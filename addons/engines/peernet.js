@@ -109,7 +109,7 @@ var PeerNetEngine = Class({
         this.msgrate = opts.optional("msgrate", 25);
 
         this.tick = 0;
-        this.counters = { messages: 0, traffic: 0 }
+        this.counters = { messages: 0, traffic: 0, totalMessages: 0, totalTraffic: 0 };
         this.nodes = [];
         for (var i = 0; i < nodeCount; i ++) {
             this.nodes[i] = new PeerNetNode((i + 1).toString(), this);
@@ -117,6 +117,16 @@ var PeerNetEngine = Class({
         this.blocked = {};
     },
 
+    countMessages: function () {
+        this.counters.messages ++;
+        this.counters.totalMessages ++;
+    },
+    
+    countTraffic: function () {
+        this.counters.traffic ++;
+        this.counters.totalTraffic ++;
+    },
+    
     block: function (id, blocked) {
         if (blocked) {
             this.blocked[id] = blocked;
@@ -127,7 +137,7 @@ var PeerNetEngine = Class({
     },
     
     deliver: function (dst, event) {
-        this.counters.traffic ++;
+        this.countTraffic();
         if (!this.blocked[dst.id]) {
             dst.enqueue(event.dup());
         }
@@ -141,7 +151,7 @@ var PeerNetEngine = Class({
                     this.deliver(node, event);
                 }
             }, this);
-            this.counters.messages ++;
+            this.countMessages();
         }
         return this;
     },
@@ -152,7 +162,7 @@ var PeerNetEngine = Class({
             if (id > 0 && id <= this.nodes.length) {
                 event.dst = this.nodes[id - 1];
                 this.deliver(event.dst, event);
-                this.counters.messages ++;
+                this.countMessages();
             }
         }
         return this;
@@ -165,7 +175,7 @@ var PeerNetEngine = Class({
                     this.deliver(node, event);
                 }
             }, this);
-            this.counters.messages ++;
+            this.countMessages();
         }
         return this;
     },
@@ -186,7 +196,8 @@ var PeerNetEngine = Class({
     
     simulate: function (done) {
         for(this.tick = 0; this.tick < this.ticks; ) {
-            this.counters = { messages: 0, traffic: 0 };
+            this.counters.messages = 0;
+            this.counters.traffic = 0;
             this.updated = false;
             this.addon.host.emit("peernet.tick.start", this, this.tick);
             for (var msgCount = 0; msgCount < this.msgrate; ) {
