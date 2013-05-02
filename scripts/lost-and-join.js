@@ -3,11 +3,11 @@ var State = Class({
         this.inspector = inspector;
     },
     
-    iterationStart: function () {
+    tickStart: function () {
         return this;
     },
     
-    iterationDone: function () {
+    tickDone: function () {
         return this;
     },
     
@@ -23,12 +23,12 @@ var JoiningState = Class(State, {
         this.nextState = nextState;
     },
     
-    iterationDone: function (engine, iteration) {
+    tickDone: function (engine, tick) {
         if (engine.nodes.every(function (node) {
                 return Object.keys(node.context.nodes).length == engine.nodes.length - 1;
             })) {
             engine.updated = true;
-            this.report({ joined: iteration });
+            this.report({ joined: tick });
             return this.nextState.call(this);
         }
         return this;
@@ -43,17 +43,17 @@ var BreakingState = Class(State, {
         this.blocking = false;
     },
     
-    iterationStart: function (engine, iteration) {
+    tickStart: function (engine, tick) {
         if (!this.blocking) {
             engine.block(BLOCK_ID, true);
             this.blocking = true;
             engine.updated = true;
-            this.report({ breaking: iteration });
+            this.report({ breaking: tick });
         }
         return this;
     },
     
-    iterationDone: function (engine, iteration) {
+    tickDone: function (engine, tick) {
         if (engine.nodes.every(function (node) {
                 if (node.id == BLOCK_ID) {
                     return true;
@@ -61,10 +61,10 @@ var BreakingState = Class(State, {
                 return Object.keys(node.context.nodes).indexOf(BLOCK_ID) < 0;
             })) {
             engine.updated = true;
-            this.report({ lost: iteration });
+            this.report({ lost: tick });
             engine.block(BLOCK_ID, false);
             this.blocking = false;
-            this.report({ rejoining: iteration });
+            this.report({ rejoining: tick });
             return new JoiningState(this.inspector, function () { return new FinalState(this.inspector); });
         }
         return this;
@@ -84,11 +84,11 @@ var Inspector = Class({
         this.state = new JoiningState(this, function () { return new BreakingState(this.inspector); });
         this.states = [];
         var self = this;
-        host.on("peernet.iteration.start", function () {
-                    self.iterationStart.apply(self, arguments);
+        host.on("peernet.tick.start", function () {
+                    self.tickStart.apply(self, arguments);
                 })
-            .on("peernet.iteration.done", function () {
-                    self.iterationDone.apply(self, arguments);
+            .on("peernet.tick.done", function () {
+                    self.tickDone.apply(self, arguments);
                 })
             .on("end", function () {
                     self.summary();
@@ -99,12 +99,12 @@ var Inspector = Class({
         this.states.push(state);
     },
     
-    iterationStart: function (engine, iteration) {
-        this.state = this.state.iterationStart(engine, iteration);
+    tickStart: function (engine, tick) {
+        this.state = this.state.tickStart(engine, tick);
     },
     
-    iterationDone: function (engine, iteration) {
-        this.state = this.state.iterationDone(engine, iteration);        
+    tickDone: function (engine, tick) {
+        this.state = this.state.tickDone(engine, tick);        
     },
     
     summary: function () {

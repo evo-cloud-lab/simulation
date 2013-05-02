@@ -35,7 +35,7 @@ var LoopPeerNetStack = Class({
     },
     
     currentTick: function () {
-        return this.node.engine.iteration;
+        return this.node.engine.tick;
     },
     
     updated: function () {

@@ -105,10 +105,10 @@ var PeerNetEngine = Class({
         
         var opts = new Options(addon.host.settings);
         var nodeCount = opts.positive("nodes");
-        this.iterations = opts.positive("iterations");
+        this.ticks = opts.positive("ticks");
         this.msgrate = opts.optional("msgrate", 25);
 
-        this.iteration = 0;
+        this.tick = 0;
         this.counters = { messages: 0, traffic: 0 }
         this.nodes = [];
         for (var i = 0; i < nodeCount; i ++) {
@@ -172,7 +172,7 @@ var PeerNetEngine = Class({
 
     report: function () {
         var summary = {
-            iteration: this.iteration,
+            tick: this.tick,
             counters: this.counters,
             nodes: {}
         };
@@ -185,10 +185,10 @@ var PeerNetEngine = Class({
     },
     
     simulate: function (done) {
-        for(this.iteration = 0; this.iteration < this.iterations; ) {
+        for(this.tick = 0; this.tick < this.ticks; ) {
             this.counters = { messages: 0, traffic: 0 };
             this.updated = false;
-            this.addon.host.emit("peernet.iteration.start", this, this.iteration);
+            this.addon.host.emit("peernet.tick.start", this, this.tick);
             for (var msgCount = 0; msgCount < this.msgrate; ) {
                 var idleCount = 0;
                 this.iterate(function (node) {
@@ -209,11 +209,11 @@ var PeerNetEngine = Class({
             this.iterate(function (node) {
                 node.tick();
             });
-            this.addon.host.emit("peernet.iteration.done", this, this.iteration);
+            this.addon.host.emit("peernet.tick.done", this, this.tick);
             if (this.updated) {
                 this.report();
             }
-            this.iteration ++;
+            this.tick ++;
         }
         done();
     },
@@ -228,7 +228,7 @@ var PeerNetEngine = Class({
 var PeerNetEngineAddon = Class({    
     get requires () {
         return {
-            stack: { name: "peernet.stack", space: "parts/peernet" }
+            stack: { name: "peernet.stack", space: "peernet" }
         };
     },
     
